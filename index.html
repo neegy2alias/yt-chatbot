@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local AI Chat — runs in your browser</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141823; --panel2:#1b2130; --line:#26304a;
+    --ink:#e8ecf5; --muted:#8b96ad; --accent:#5b8cff; --accent2:#22d3a6;
+    --danger:#ff5c6c; --warn:#ffb020; --user:#1e2740; --bot:#101627;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1100px 700px at 12% -10%,#1a2340 0%,var(--bg) 55%);
+    color:var(--ink); font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex; flex-direction:column; height:100vh;
+  }
+  header{
+    display:flex; align-items:center; gap:12px; padding:14px 18px;
+    border-bottom:1px solid var(--line); background:rgba(20,24,35,.7); backdrop-filter:blur(8px);
+    flex-wrap:wrap;
+  }
+  .logo{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:grid;place-items:center;font-weight:800;color:#07101f;flex:none}
+  h1{font-size:16px;margin:0;font-weight:700}
+  .tag{font-size:11px;color:var(--muted);margin-left:2px}
+  .spacer{flex:1}
+  select,button{font:inherit}
+  select{
+    background:#0d1220;color:var(--ink);border:1px solid var(--line);border-radius:9px;
+    padding:8px 10px;max-width:340px;outline:none;
+  }
+  select:focus{border-color:var(--accent)}
+  button{
+    background:#1e2740;color:var(--ink);border:1px solid var(--line);border-radius:9px;
+    padding:8px 14px;font-weight:600;cursor:pointer;transition:.15s;
+  }
+  button:hover:not(:disabled){border-color:var(--accent)}
+  button.primary{background:linear-gradient(135deg,var(--accent),#3f6fe0);border-color:transparent}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  #status{font-size:12px;color:var(--muted);padding:8px 18px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:8px;min-height:34px}
+  #status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+  #status.on .dot{background:var(--accent2)} #status.busy .dot{background:var(--warn)} #status.err .dot{background:var(--danger)}
+  #bar{height:3px;background:transparent;transition:width .2s}
+  #barwrap{height:3px;background:#0d1220}
+  #bar{background:linear-gradient(90deg,var(--accent),var(--accent2));width:0}
+  #chat{flex:1;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:min(760px,92%);padding:12px 15px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}
+  .msg.user{align-self:flex-end;background:var(--user);border:1px solid #2b3550;border-bottom-right-radius:4px}
+  .msg.bot{align-self:flex-start;background:var(--bot);border:1px solid var(--line);border-bottom-left-radius:4px}
+  .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+  .empty{margin:auto;text-align:center;color:var(--muted);max-width:520px}
+  .empty h2{font-size:18px;color:var(--ink);margin:0 0 8px}
+  .empty p{font-size:13px;margin:6px 0}
+  footer{padding:14px 18px;border-top:1px solid var(--line);background:rgba(20,24,35,.7)}
+  .inputrow{display:flex;gap:10px;align-items:flex-end;max-width:1100px;margin:0 auto}
+  textarea{
+    flex:1;resize:none;background:#0d1220;color:var(--ink);border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;font:inherit;outline:none;max-height:180px;min-height:48px;
+  }
+  textarea:focus{border-color:var(--accent)}
+  .hint{font-size:11px;color:var(--muted);text-align:center;margin-top:8px}
+  a{color:var(--accent)}
+  code{background:#0d1220;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  .cursor:after{content:"▋";animation:blink 1s steps(1) infinite;color:var(--accent2)}
+  @keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">AI</div>
+    <div>
+      <h1>Local AI Chat</h1>
+      <div class="tag">Runs entirely in your browser · no server · no API key · unlimited</div>
+    </div>
+    <div class="spacer"></div>
+    <select id="model" title="Model"></select>
+    <button class="primary" id="load">Load model</button>
+    <button id="reset" disabled>New chat</button>
+  </header>
+
+  <div id="status"><span class="dot"></span><span id="statusText">Checking WebGPU…</span></div>
+  <div id="barwrap"><div id="bar"></div></div>
+
+  <div id="chat">
+    <div class="empty" id="empty">
+      <h2>Chat with a model running on your own machine</h2>
+      <p>Pick a model and press <strong>Load model</strong>. The first load downloads the weights (a few hundred MB to ~2 GB) and caches them — after that it starts instantly.</p>
+      <p>Nothing you type leaves this device. No account, no key, no usage limit.</p>
+    </div>
+  </div>
+
+  <footer>
+    <div class="inputrow">
+      <textarea id="input" rows="1" placeholder="Ask anything…  (Enter to send, Shift+Enter for a new line)" disabled></textarea>
+      <button class="primary" id="send" disabled>Send</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <div class="hint">Requires a WebGPU browser — Chrome/Edge 113+, or Safari 18+. If it says unsupported, try Chrome on desktop.</div>
+  </footer>
+
+<script type="module">
+// WebLLM runs open-weight LLMs locally via WebGPU. All inference happens on-device.
+import * as webllm from "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm";
+
+const $ = (id) => document.getElementById(id);
+const chatEl = $('chat'), inputEl = $('input'), sendBtn = $('send'), stopBtn = $('stop');
+const loadBtn = $('load'), resetBtn = $('reset'), modelSel = $('model');
+const statusEl = $('status'), statusText = $('statusText'), bar = $('bar'), emptyEl = $('empty');
+
+let engine = null;
+let messages = [];          // [{role, content}]
+let busy = false;
+let abortFlag = false;
+
+function setStatus(text, cls) {
+  statusText.textContent = text;
+  statusEl.className = cls || '';
+}
+
+function addBubble(role, text) {
+  emptyEl && emptyEl.remove();
+  const el = document.createElement('div');
+  el.className = 'msg ' + role;
+  el.innerHTML = '<div class="who">' + (role === 'user' ? 'You' : 'AI') + '</div>';
+  const body = document.createElement('div');
+  body.textContent = text;
+  el.appendChild(body);
+  chatEl.appendChild(el);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return body;
+}
+
+function autoGrow() {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + 'px';
+}
+
+// ---- WebGPU check ---------------------------------------------------------
+if (!('gpu' in navigator)) {
+  setStatus('WebGPU is not available in this browser.', 'err');
+  statusText.innerHTML = 'WebGPU not supported. Open this file in <strong>Chrome or Edge 113+</strong> on desktop (or Safari 18+). Firefox needs it enabled in flags.';
+  loadBtn.disabled = true;
+} else {
+  setStatus('Ready — pick a model and press "Load model".');
+}
+
+// ---- storage / sandbox check ----------------------------------------------
+// WebLLM caches model weights with the Cache API. That throws inside a
+// sandboxed iframe (one without allow-same-origin) — which is exactly what an
+// embedded HTML preview uses. Detect it up front and explain the fix.
+let cacheBlocked = false;
+try { void window.caches; } catch (e) { cacheBlocked = true; }
+if (cacheBlocked && !loadBtn.disabled) {
+  setStatus('Cannot run here: this view has no storage access.', 'err');
+  statusText.innerHTML = 'This page is inside a <strong>sandboxed preview</strong>, which blocks the Cache API the model needs. '
+    + 'Open it in a real browser tab: save the file, run <code>python3 -m http.server</code> in its folder, '
+    + 'then visit <code>http://localhost:8000/local-ai-chat.html</code>.';
+  loadBtn.disabled = true;
+  modelSel.disabled = true;
+}
+
+// ---- populate the model list from WebLLM's own catalogue ------------------
+try {
+  const list = (webllm.prebuiltAppConfig && webllm.prebuiltAppConfig.model_list) || [];
+  const chatModels = list
+    .map(m => m.model_id)
+    .filter(id => !/embed|sentence|bge|e5-/i.test(id));
+
+  // Prefer small, quick chat models; keep the rest available too.
+  const preferred = chatModels.filter(id => /1B|1\.5B|2B|3B|Phi-3\.5-mini|SmolLM/i.test(id));
+  const ordered = [...new Set([...preferred, ...chatModels])];
+
+  for (const id of ordered) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = id.replace(/-q4f32_1-MLC$/, '').replace(/-MLC$/, '');
+    modelSel.appendChild(opt);
+  }
+  const def = ordered.find(id => /Llama-3\.2-1B-Instruct/i.test(id))
+    || ordered.find(id => /Phi-3\.5-mini/i.test(id))
+    || ordered[0];
+  if (def) modelSel.value = def;
+} catch (e) {
+  const opt = document.createElement('option');
+  opt.textContent = 'Could not load model list';
+  modelSel.appendChild(opt);
+}
+
+// ---- load model -----------------------------------------------------------
+loadBtn.addEventListener('click', async () => {
+  if (engine) return;
+  const modelId = modelSel.value;
+  if (!modelId) return;
+  loadBtn.disabled = true; modelSel.disabled = true;
+  setStatus('Downloading / loading ' + modelId + ' …', 'busy');
+
+  try {
+    engine = await webllm.CreateMLCEngine(modelId, {
+      initProgressCallback: (p) => {
+        const pct = Math.round((p.progress || 0) * 100);
+        bar.style.width = pct + '%';
+        setStatus(p.text || ('Loading… ' + pct + '%'), 'busy');
+      }
+    });
+    bar.style.width = '100%';
+    setStatus('Model ready — ' + modelId, 'on');
+    inputEl.disabled = false; sendBtn.disabled = false; resetBtn.disabled = false;
+    inputEl.focus();
+  } catch (err) {
+    const msg = (err && err.message) ? err.message : String(err);
+    if (/cache|sandbox|allow-same-origin|storage/i.test(msg)) {
+      setStatus('Cannot load here: storage is blocked (sandboxed preview).', 'err');
+      statusText.innerHTML = 'The model needs the browser Cache API, which is disabled in this embedded/sandboxed view. '
+        + 'Open the file in a real browser tab (serve it locally or host it), then reload.';
+    } else {
+      setStatus('Failed to load model: ' + msg, 'err');
+    }
+    loadBtn.disabled = false; modelSel.disabled = false;
+  }
+});
+
+// ---- send / stream --------------------------------------------------------
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || !engine || busy) return;
+
+  busy = true; abortFlag = false;
+  inputEl.value = ''; autoGrow();
+  sendBtn.disabled = true; stopBtn.disabled = false; inputEl.disabled = true;
+
+  messages.push({ role: 'user', content: text });
+  addBubble('user', text);
+  const botBody = addBubble('bot', '');
+  botBody.classList.add('cursor');
+  let acc = '';
+
+  try {
+    const chunks = await engine.chat.completions.create({
+      messages,
+      temperature: 0.7,
+      stream: true
+    });
+    for await (const chunk of chunks) {
+      if (abortFlag) break;
+      const delta = (chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) || '';
+      if (delta) {
+        acc += delta;
+        botBody.textContent = acc;
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+    }
+  } catch (err) {
+    acc += (acc ? '\n\n' : '') + '[error: ' + (err && err.message ? err.message : err) + ']';
+    botBody.textContent = acc;
+  } finally {
+    botBody.classList.remove('cursor');
+    messages.push({ role: 'assistant', content: acc });
+    busy = false; sendBtn.disabled = false; stopBtn.disabled = true; inputEl.disabled = false;
+    inputEl.focus();
+  }
+}
+
+sendBtn.addEventListener('click', send);
+stopBtn.addEventListener('click', () => { abortFlag = true; });
+
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+inputEl.addEventListener('input', autoGrow);
+
+resetBtn.addEventListener('click', async () => {
+  messages = [];
+  chatEl.innerHTML = '<div class="empty" id="empty"><h2>New chat</h2><p>Your previous conversation is cleared from this page.</p></div>';
+  if (engine && engine.resetChat) { try { await engine.resetChat(); } catch {} }
+  setStatus('Model ready — ' + modelSel.value, 'on');
+});
+</script>
+</body>
+</html>

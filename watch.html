@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watch — YouTube embed player</title>
+<style>
+  :root{--bg:#0b0d12;--panel:#141823;--panel2:#1b2130;--line:#26304a;--ink:#e8ecf5;--muted:#8b96ad;--accent:#5b8cff;--accent2:#22d3a6}
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{background:radial-gradient(1100px 700px at 12% -10%,#1a2340 0%,var(--bg) 55%);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding-bottom:60px}
+  .wrap{max-width:1000px;margin:0 auto;padding:26px 20px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:grid;place-items:center;font-weight:800;color:#07101f;flex:none}
+  h1{font-size:19px;margin:0}
+  .sub{color:var(--muted);font-size:13px;margin:4px 0 18px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  input{flex:1;min-width:240px;padding:11px 13px;border-radius:10px;border:1px solid var(--line);
+    background:#0d1220;color:var(--ink);font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;outline:none}
+  input:focus{border-color:var(--accent)}
+  button{padding:11px 16px;border-radius:10px;border:1px solid var(--line);background:#1e2740;color:var(--ink);
+    font-weight:600;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:linear-gradient(135deg,var(--accent),#3f6fe0);border-color:transparent}
+  .frame{position:relative;background:#000;border-radius:14px;overflow:hidden;border:1px solid var(--line);aspect-ratio:16/9}
+  iframe{width:100%;height:100%;border:0;display:block}
+  .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);text-align:center;padding:24px;font-size:14px}
+  .note{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.65}
+  code{background:#0d1220;border:1px solid var(--line);border-radius:6px;padding:1px 5px;font-size:12px}
+  a{color:var(--accent)}
+  .nav{margin-left:auto;font-size:13px}
+  .nav a{text-decoration:none;color:var(--muted);border:1px solid var(--line);padding:7px 12px;border-radius:9px}
+  .nav a:hover{color:var(--ink);border-color:var(--accent)}
+  .err{color:#ff5c6c;font-size:13px;margin-top:10px;min-height:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">▶</div>
+    <h1>Watch</h1>
+    <div class="nav"><a href="index.html">← AI Chat</a></div>
+  </header>
+  <div class="sub">Paste a YouTube link to play it here with YouTube's official embed player.</div>
+
+  <div class="row">
+    <input id="url" placeholder="https://www.youtube.com/watch?v=…  or  youtu.be/…" spellcheck="false">
+    <button class="primary" id="play">Play</button>
+    <button id="clear">Clear</button>
+  </div>
+  <div class="err" id="err"></div>
+
+  <div class="frame" id="frame">
+    <div class="placeholder" id="ph">No video loaded — paste a link above</div>
+  </div>
+
+  <div class="note">
+    <strong style="color:var(--ink)">This embeds; it does not download.</strong>
+    YouTube's official player is the allowed way to show a YouTube video on your own page — the
+    video is streamed by YouTube itself, and creators get their views. Ripping videos to MP4
+    (yt-dlp and similar) breaks YouTube's Terms of Service and infringes copyright unless the
+    video is yours, Creative-Commons licensed, or you have permission.
+    <br><br>
+    Need a downloadable file? Use <strong>your own uploads</strong> via YouTube Studio → Download,
+    a video marked <strong>Creative Commons</strong> (the licence permits it), or a source that
+    actually distributes files — like the <a href="https://archive.org/details/movies" target="_blank" rel="noopener">Internet Archive</a>.
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // Pull the 11-char video id out of the common URL shapes.
+  function parseYouTubeId(input) {
+    const s = (input || '').trim();
+    if (!s) return null;
+    // bare id
+    if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+    let u;
+    try { u = new URL(s.startsWith('http') ? s : 'https://' + s); } catch { return null; }
+    const host = u.hostname.replace(/^www\./, '');
+    if (host === 'youtu.be') return u.pathname.slice(1, 12) || null;
+    if (host.endsWith('youtube.com') || host.endsWith('youtube-nocookie.com')) {
+      if (u.searchParams.get('v')) return u.searchParams.get('v').slice(0, 11);
+      const m = u.pathname.match(/\/(embed|shorts|live|v)\/([A-Za-z0-9_-]{11})/);
+      if (m) return m[2];
+    }
+    return null;
+  }
+
+  function play() {
+    $('err').textContent = '';
+    const id = parseYouTubeId($('url').value);
+    if (!id) { $('err').textContent = 'That doesn’t look like a YouTube link.'; return; }
+    $('frame').innerHTML =
+      '<iframe src="https://www.youtube-nocookie.com/embed/' + id +
+      '?rel=0" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; ' +
+      'encrypted-media; gyroscope; picture-in-picture; web-share" ' +
+      'referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>';
+  }
+
+  function clearAll() {
+    $('url').value = '';
+    $('err').textContent = '';
+    $('frame').innerHTML = '<div class="placeholder" id="ph">No video loaded — paste a link above</div>';
+  }
+
+  $('play').addEventListener('click', play);
+  $('clear').addEventListener('click', clearAll);
+  $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') play(); });
+</script>
+</body>
+</html>
